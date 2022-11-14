@@ -1,0 +1,68 @@
+---
+title: "Exploratory Data Analysis: Diabetes Patient Data"
+output:
+  html_notebook: default
+  pdf_document:
+    latex_engine: xelatex
+---
+
+---
+Aakash Madabhushi, Jobin Joyson and Rudra More
+---
+
+
+```{r}
+library(tidyverse)
+options(warn=-1)
+
+```
+
+
+
+
+```{r}
+col = c('pregnancies','glucose','blood_pressure','skin_thickness','insulin','bmi','diabetes_ped_func','age','outcome')
+df_table = read.csv("/Users/aakashvardhan/Google Drive/Shared drives/Applied Statistics Project/data/diabetes.csv",sep=",",col.names = col)
+df_table
+```
+
+
+```{r}
+is.null(df_table)
+```
+
+```{r}
+#1:(Yes),0:(No)
+#table(df_table$outcome) / nrow(df_table)
+
+df_summary = df_table %>%
+  group_by(outcome) %>%
+  summarise(count = n(),
+            proportion = n() / nrow(df_table))
+df_summary
+```
+
+Unbalanced distribution, which means about 65% people in this dataset did not have diabetes.
+
+
+Given the Y(outcome) variable is categorical, we would need to use the logistic regression model.
+
+```{r}
+df_logit = glm(outcome ~ .,family=binomial(link="logit"), data = df_table)
+df_info = summary(df_logit)
+df_info
+```
+
+
+```{r}
+library(corrplot)
+corrplot(cor(df_table),method="number")
+```
+
+
+```{r}
+library(car)
+vif(df_logit)
+```
+
+
