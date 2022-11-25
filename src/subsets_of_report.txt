@@ -1,9 +1,3 @@
-logit/ probit
-forward/backward selection
-cross validation 
-wald test
-AIC/BIC
-
 cross validation 
 logistic model
 logit/ probit
@@ -12,3 +6,6 @@ Wald test
 likelihood ratio
 AIC/BIC
 Chi square goodness of fit
+
+regression trees
+
