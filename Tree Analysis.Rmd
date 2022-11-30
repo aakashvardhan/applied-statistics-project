@@ -1,0 +1,174 @@
+---
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+```
+
+# Tree Regression
+
+Another approach we could take for our data set is tree regression. We will use the `rpart` library to make a regression tree model of the data set and then visualize it with the help of `rpart.plot`.
+
+## Data Preparation
+
+Since our target variable, "Outcome", is a binary variable, we will make it of type factor. For better tree visualization, we will make the following changes to our variable names: `BloodPressure` will be renamed to `BP`, `SkinThickness` will be renamed to `ST`, and `DiabetesPredegreeFunction`will be renamed to `DPF` .
+
+
+```{r}
+library(rpart)
+library(rpart.plot)
+diabetes.df <- read.csv("data/diabetes.csv")
+diabetes.df$Outcome = as.factor(diabetes.df$Outcome)
+colnames(diabetes.df) = c("Pregnancies", "Glucose", "BP", "ST", "Insulin", "BMI", "DPF", "Age", "Outcome")
+```
+
+Now we split up the data to training and testing sets. This can allow us to train part of the data on tree regression and test its accuracy. After performing a 80/20 split, we can fit our model on the training data set. There is also an imbalance in our `Outcome` variable.
+
+```{r}
+set.seed(321)
+library(caret)
+diabetes.df.index <- createDataPartition(diabetes.df$Outcome, p = 0.8, list = FALSE)
+diabetes.training <- diabetes.df[diabetes.df.index,]
+diabetes.testing <- diabetes.df[-diabetes.df.index,]
+
+cat("Training")
+table(diabetes.training$Outcome)
+```
+
+```{r}
+cat("Testing")
+table(diabetes.testing$Outcome)
+```
+
+We will use undersampling to reduce bias towards the majority.
+
+```{r}
+diabetes.training <- downSample(diabetes.training[,-9], diabetes.training$Outcome, yname = "Outcome")
+diabetes.testing <- downSample(diabetes.testing[,-9], diabetes.testing$Outcome, yname = "Outcome")
+```
+
+```{r}
+cat("Training")
+table(diabetes.training$Outcome)
+```
+
+```{r}
+cat("Testing")
+table(diabetes.testing$Outcome)
+```
+
+## Tree Analysis
+
+Since our target variable, `Outcome`, is a binary variable that classifies whether the patient has diabetes or not, we will create a classification tree on the training data set.
+
+```{r}
+tree <- rpart(Outcome ~., data = diabetes.training, method = "class")
+tree
+```
+
+### Tree description
+
+In the tree details we are presented with the node number. Each node has a split indicating what predictor and criteria was used to split the observations to its children nodes.
+
+Following that is the number of observations in that node, n. Our initial n is 430, so 430 observations were used in total and that is the n shown in the root node.
+
+Loss shows how many observations from the n in that node was miss classified. Taking a look at the second node, we can see that the total observations was $n = 240$ and there was a loss of 71.
+
+Next it shows whether the classification was non diabetic, 0, and diabetic, 1. This is referred to as `yval`. On the second node we see 0, indicating that the classification was non diabetic. With this we can assume that the majority will determine the classification. Meaning that since majority led to a classification of non diabetic in node 2, we can assume that the previous loss of 71 observations was a miss classification of 1, diabetic.
+
+The last part of each line shows of the target probability based on what the `yval` was. Looking at node two, the probability of target being 0 is $70\%$ and the miss classification is $30\%$. This is labeled as `(yprob)`.
+
+### Tree plot
+
+```{r, fig.cap= "Tree Diagram"}
+rpart.plot(tree, tweak = 1.1)
+```
+
+From the visualization presented above, we can determine the key predictors that play a major influence on determining whether the patient is diabetic. All regression trees are presented in an upside down manner, with the root node being at the top of the tree and the leaves at the end. To traverse through a regression tree, we look at the root of the tree first. If the statement is true, in our case if the inequality holds true, we descend down the left child of the root node. Else, we go to the right.
+
+There are a total of 9 splits in this tree. The first split is on the Glucose level of the patient. If glucose exceeds 128, we go to the right, node 3. If we look at the tree details from above, we can see that node three has 190 cases and 46 of those would be miss classified as 0, or non diabetic. This can be compared to the accuracy of $76\%$ being correctly classified as diabetic because $\frac{46}{190} = 24\%$ is the remainder that was miss classified. The percentage shown at the bottom of the third node, $44\%$, is how much of the original observations fit the case. In other words, $\frac{190}{430}$ or $44\%$ of the total patients observed had glucose exceeding 128.
+
+Interestingly, Insulin levels measured in the 2 hour serum test is not used shown on the tree to help determine whether the patient has diabetes or not. With an initial assumption this can be surprising because with diabetes, insulin levels are not high enough to manage the blood sugar in the body. A possible reasoning behind insulin levels not being used as splitting criterion could be that the patients who are diabetic already are using some medication to help maintain a healthy amount of insulin in their body. This would lead to normal/similar insulin levels among non diabetic patients and diabetic patients with treatment to have similar insulin levels.
+
+
+*Variable Importance of Tree*
+```{r}
+tree$variable.importance
+```
+
+With the help of the variable importance method in rpart library, we can see the level of importance for each predictor. Notice that although Insulin was not used as a criterion for branching the classification tree, it still has a higher level of importance than Blood Pressure, Pregancies, Diabetes Predegree Function, and Skin Thickness. 
+
+This could be due to the fact that variable importance is calculated using "the sum of the goodness of split measures for each split for which it was the primary variable, plus goodness *(adjusted agreement) for all splits in which it was a surrogate" (reference 1). This is different to how the tree calculates which variable to perform the split. The tree can have a variable occur many times, "either as a primary or surrogate variable" (reference 1). We may also have gotten different results for the tree depending on the seed we use.
+
+### Tree Predictions
+
+Now that we have a tree model for classifying whether a patient has diabetes or not, we can look the accuracy of our model through the test data set.
+
+```{r}
+Prediction = predict(tree, diabetes.testing, type = "class")
+Actual = diabetes.testing$Outcome
+confusionMatrix(Prediction, Actual)
+```
+
+There are 14 false negatives and 15 false positives, giving us a $\frac{(14+15)}{(39+15+14+38)} = \frac{29}{106} = 27\%$ error rate. With the remaining we have a $73\%$ accuracy.
+
+### Tree Pruning
+
+The accuracy of this current tree is pretty good. However, we can see if pruning the tree will lead to a lower error rate and more accurate predictions. We first check the `cp`, complexity parameter, of the shorter trees. Then we select the lowest `cp` with the lowest relative error.
+
+```{r}
+printcp(tree)
+```
+
+
+```{r}
+low.cp <- tree$cptable[which.min(tree$cptable[,"xerror"]),"CP"]
+cat("CP with lowest cross validation error:", low.cp)
+```
+
+```{r, fig.cap= "Cross Validation Error vs. Complexity Parameeter"}
+plotcp(tree, tweak = 1.1)
+```
+
+
+
+
+
+
+
+
+
+
+Now we make a tree with the lowest `cp` and look at the new pruned tree.
+
+```{r, fig.cap= "Pruned Tree"}
+pruned.tree <- prune(tree, cp = low.cp)
+rpart.plot(pruned.tree, tweak = 1.1)
+```
+
+*Variable Importance of Pruned Tree*
+```{r}
+pruned.tree$variable.importance
+```
+
+There 7 splits in the pruned tree, two less from the original. Let's take a look at the accuracy of the pruned tree.
+
+```{r}
+Prediction.new = predict(pruned.tree, diabetes.testing, type = "class")
+confusionMatrix(Prediction.new, Actual)
+```
+
+The accuracy actually increased by a percent. The total false negatives in the pruned tree is 14 and 12 false negatives giving us a $\frac{(14+12)}{(39+12+14+41)} = \frac{26}{106} = 25\%$ error and $75\%$ accuracy. There was removal of unnecessary splits and roots which we can see when comparing the pruned tree with the original:
+
+```{r, figures-side, fig.show='hold', out.width="50%",  fig.cap="Original Tree (left) vs. Pruned Tree (right)"}
+rpart.plot(tree)
+rpart.plot(pruned.tree)
+```
+
+
+There are two more splits that occur after $DPF < 0.63$ in the original split. The pruned tree removes them and increases the accuracy of the model predictions.
+
+## References
+
+1.  Therneau, T. M., Atkinson, E. J., & Foundation, M. (2022, October 21). An Introduction to Recursive Partitioning Using the RPART Routines. From <https://cran.r-project.org/web//packages/rpart/vignettes/longintro.pdf>
