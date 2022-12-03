@@ -1,17 +1,14 @@
 ---
-title: "Exploratory Data Analysis: Diabetes Patient Data"
-output:
-  html_notebook: default
-  pdf_document:
-    latex_engine: xelatex
----
-
----
-Aakash Madabhushi, Jobin Joyson and Rudra More
+output: pdf_document
 ---
 
 
-```{r}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+
+```
+
+```{r,echo=FALSE}
 library(tidyverse)
 options(warn=-1)
 
@@ -21,48 +18,179 @@ options(warn=-1)
 
 
 ```{r}
-col = c('pregnancies','glucose','blood_pressure','skin_thickness','insulin','bmi','diabetes_ped_func','age','outcome')
-df_table = read.csv("/Users/aakashvardhan/Google Drive/Shared drives/Applied Statistics Project/data/diabetes.csv",sep=",",col.names = col)
-df_table
+library(rpart)
+library(rpart.plot)
+diabetes.df <- read.csv("../data/diabetes.csv")
+library(corrplot)
+corrplot(cor(diabetes.df))
 ```
+
+From the correlation matrix, we can see that some of the independent variables are moderately correlated, such as (Age, Pregnancy). This is the result of multicollinearity.
 
 
 ```{r}
-is.null(df_table)
+diabetes.df$Outcome = as.factor(diabetes.df$Outcome)
+colnames(diabetes.df) = c("Pregnancies", "Glucose", "BP", "ST", "Insulin", "BMI", "DPF", "Age", "Outcome")
+```
+
+
+
+```{r,echo=FALSE}
+is.null(diabetes.df)
 ```
 
 ```{r}
-#1:(Yes),0:(No)
-#table(df_table$outcome) / nrow(df_table)
+summary(diabetes.df)
 
-df_summary = df_table %>%
-  group_by(outcome) %>%
-  summarise(count = n(),
-            proportion = n() / nrow(df_table))
-df_summary
 ```
 
 Unbalanced distribution, which means about 65% people in this dataset did not have diabetes.
 
 
+```{r}
+set.seed(321)
+library(caret)
+diabetes.df.index <- createDataPartition(diabetes.df$Outcome, p = 0.8, list = FALSE)
+diabetes.training <- diabetes.df[diabetes.df.index,]
+diabetes.testing <- diabetes.df[-diabetes.df.index,]
+```
+
 Given the Y(outcome) variable is categorical, we would need to use the logistic regression model.
 
+
+
+
+
+Using undersampling to reduce bias towards the majority.
+
 ```{r}
-df_logit = glm(outcome ~ .,family=binomial(link="logit"), data = df_table)
-df_info = summary(df_logit)
-df_info
+diabetes.training = downSample(diabetes.training[,-9],diabetes.training$Outcome,yname="Outcome")
+
+diabetes.testing = downSample(diabetes.testing[,-9],diabetes.testing$Outcome,yname="Outcome")
+
+```
+
+```{r}
+cat("Training")
+table(diabetes.training$Outcome)
+```
+
+```{r}
+cat("Testing")
+table(diabetes.testing$Outcome)
 ```
 
 
 ```{r}
-library(corrplot)
-corrplot(cor(df_table),method="number")
+paste("train sample size: ", dim(diabetes.training)[1])
+paste("test sample size: ", dim(diabetes.testing)[1])
+
+
+```
+
+```{r}
+table(diabetes.training$Outcome)
+table(diabetes.testing$Outcome)
+```
+
+
+Generalized Linear Model
+
+Logistic Regression
+
+Using Logit:
+
+
+
+
+```{r}
+library(MASS)
+library(dplyr)
+model.full = glm(Outcome~.,family = binomial,data=diabetes.training)
+model.step = model.full %>% stepAIC(trace=FALSE)
+lm_sum = summary(model.step)
+lm_sum
+```
+
+The StepAIC function was used to determine the model goodness of fit between the logit and probit model. This decided the outcome that the logit model is suitable for this specific task as it has a lower AIC compared to the probit model. Also the insignificant variables are the skin thickness and age. 
+
+
+The logistic regression coefficients give the change in the log odds of the outcome for a one unit increase in the predictor variable.
+
+The maximum likelihood estimation can be expressed as:
+
+$$ \ln{\frac{\pi}{1 - \pi}} = -8.653 + 0.113X_{1} + 0.0438X_{2} - 0.0110X_{3} - 0.00224X_{4} + 0.0938X_{5} + 1.174X_{6} $$
+
+```{r}
+
+exp(model.step$coefficients)
+
+```
+Interpretation of step model:
+
+
+* For every one unit increase in pregnancies, there is an increase change in $(1.12 - 1)*100 = 12%$% in odds ratio
+* For every one unit increase in glucose, there is an increase change in $(1.04 - 1)*100 = 4%$% in odds ratio
+* For every one unit increase in BP, there is decrease change of $1.1%$% in odds ratio
+* For every one unit increase in Insulin, there is decrease change of $0.2%$% in odds ratio
+* For every one unit increase in BMI, there is an increase change of $9.8%$% in odds ratio
+* For every one unit increase in DPF, there is an increase change in $223%$% in odds ratio
+
+
+Statistical Inference:
+
+```{r}
+confint(model.step)
+
+```
+
+
+Prediction:
+
+```{r}
+
+prob = predict(model.step,diabetes.testing,type="response")
+pred.classes = ifelse(prob > 0.5,"pos","neg")
+
+#Confusion Matrix
+
+mat.table = table(diabetes.testing$Outcome,pred.classes)
+rownames(mat.table) <- c("Obs. neg","Obs. pos")
+colnames(mat.table) <- c("Pred. neg","Pred. pos")
+mat.table
+
+```
+
+Average Predicted Probability:
+
+```{r}
+sum(exp(prob) / (1+exp(prob))) / nrow(diabetes.testing)
+
+```
+
+Accuracy of the step-wise multiple Logistic Regression Model:
+
+```{r}
+#Accuracy
+
+eff = sum(diag(mat.table))/sum(mat.table)
+eff
+
 ```
 
 
 ```{r}
-library(car)
-vif(df_logit)
+library(pROC)
+pred.classes = ifelse(prob > 0.5,1,0)
+roc_score= roc(diabetes.testing$Outcome~pred.classes)
+plot(roc_score ,main ="ROC curve -- Logistic Regression ")
+
 ```
 
+```{r}
+roc_score
+
+```
+
+Given the plot and AUC, the value 0.7075 indicates that this is a good predictive model.
 
