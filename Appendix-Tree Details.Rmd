@@ -1,0 +1,78 @@
+---
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+```
+
+```{r}
+library(rpart)
+library(rpart.plot)
+diabetes.df <- read.csv("data/diabetes.csv")
+diabetes.df$Outcome = as.factor(diabetes.df$Outcome)
+colnames(diabetes.df) = c("Pregnancies", "Glucose", "BP", "ST", "Insulin", "BMI", "DPF", "Age", "Outcome")
+```
+
+```{r}
+set.seed(321)
+library(caret)
+diabetes.df.index <- createDataPartition(diabetes.df$Outcome, p = 0.8, list = FALSE)
+diabetes.training <- diabetes.df[diabetes.df.index,]
+diabetes.testing <- diabetes.df[-diabetes.df.index,]
+diabetes.training <- downSample(diabetes.training[,-9], diabetes.training$Outcome, yname = "Outcome")
+diabetes.testing <- downSample(diabetes.testing[,-9], diabetes.testing$Outcome, yname = "Outcome")
+```
+
+```{r}
+tree <- rpart(Outcome ~., data = diabetes.training, method = "class")
+low.cp <- tree$cptable[which.min(tree$cptable[,"xerror"]),"CP"]
+pruned.tree <- prune(tree, cp = low.cp)
+
+```
+
+# Appendix - Tree Details
+
+The following information is provided to help follow through the Tree Analysis
+
+**Tree description**
+
+In the tree details we are presented with the node number. Each node has a split indicating what predictor and criteria was used to split the observations to its children nodes.
+
+Following that is the number of observations in that node, n. Our initial n is 430, so 430 observations were used in total and that is the n shown in the root node.
+
+Loss shows how many observations from the n in that node was miss classified. Taking a look at the second node, we can see that the total observations was $n = 240$ and there was a loss of 71.
+
+Next it shows whether the classification was non diabetic, 0, and diabetic, 1. This is referred to as `yval`. On the second node we see 0, indicating that the classification was non diabetic. With this we can assume that the majority will determine the classification. Meaning that since majority led to a classification of non diabetic in node 2, we can assume that the previous loss of 71 observations was a miss classification of 1, diabetic.
+
+The last part of each line shows of the target probability based on what the `yval` was. Looking at node two, the probability of target being 0 is $70\%$ and the miss classification is $30\%$. This is labeled as `(yprob)`.
+
+**Tree Predictions and Variable Importance of Original Tree**
+
+```{r}
+Prediction = predict(tree, diabetes.testing, type = "class")
+Actual = diabetes.testing$Outcome
+confusionMatrix(Prediction, Actual)
+```
+
+```{r}
+tree$variable.importance
+```
+
+
+**Insulin is an Important Variable**
+
+In the Variable Importance results we see that Insulin is listed higher above many variables, despite not being used in the branching of the tree This could be due to the fact that variable importance is calculated using "the sum of the goodness of split measures for each split for which it was the primary variable, plus goodness *(adjusted agreement) for all splits in which it was a surrogate" (reference 1). This is different to how the tree calculates which variable to perform the split. The tree can have a variable occur many times, "either as a primary or surrogate variable" (reference 1). We may also have gotten different results for the tree depending on the seed we use.
+
+**Tree Predictions and Variable Importance of Pruned Tree**
+
+```{r}
+Prediction.new = predict(pruned.tree, diabetes.testing, type = "class")
+confusionMatrix(Prediction.new, Actual)
+```
+
+```{r}
+pruned.tree$variable.importance
+```
+
+## References
+1.  Therneau, T. M., Atkinson, E. J., & Foundation, M. (2022, October 21). An Introduction to Recursive Partitioning Using the RPART Routines. From <https://cran.r-project.org/web//packages/rpart/vignettes/longintro.pdf>
